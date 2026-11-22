@@ -1,9 +1,11 @@
 package com.example.StudyFlow.config;
 
+import com.example.StudyFlow.document.WebsiteLayout;
 import com.example.StudyFlow.entity.*;
 import com.example.StudyFlow.enums.AttendanceStatus;
 import com.example.StudyFlow.enums.LeadStatus;
 import com.example.StudyFlow.repository.*;
+import com.example.StudyFlow.repository.mongo.WebsiteLayoutRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -12,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Slf4j
 @Configuration
@@ -21,6 +24,7 @@ public class DataSeeder implements CommandLineRunner {
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
     private final ProjectConfigRepository configRepository;
+    private final WebsiteLayoutRepository websiteLayoutRepository;
     private final BatchRepository batchRepository;
     private final StudentRepository studentRepository;
     private final TeacherRepository teacherRepository;
@@ -114,6 +118,29 @@ public class DataSeeder implements CommandLineRunner {
                 .layoutData(initialLayoutJson)
                 .build();
         configRepository.save(config);
+
+        // Seed into MongoDB website_layouts collection
+        try {
+            if (!websiteLayoutRepository.existsBySlug(project.getSlug())) {
+                WebsiteLayout demoLayout = WebsiteLayout.builder()
+                        .projectId(project.getId())
+                        .slug(project.getSlug())
+                        .websiteName(project.getWebsiteName())
+                        .themeColor(project.getThemeColor())
+                        .draftLayout(initialLayoutJson)
+                        .publishedLayout(initialLayoutJson)
+                        .version(1)
+                        .published(true)
+                        .createdAt(LocalDateTime.now())
+                        .updatedAt(LocalDateTime.now())
+                        .publishedAt(LocalDateTime.now())
+                        .build();
+                websiteLayoutRepository.save(demoLayout);
+                log.info("Demo website layout seeded into MongoDB (slug: {})", project.getSlug());
+            }
+        } catch (Exception e) {
+            log.error("Failed to seed layout in MongoDB: {}", e.getMessage());
+        }
 
         // 4. Create Batches
         Batch batch11 = Batch.builder()

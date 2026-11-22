@@ -1,5 +1,6 @@
 package com.example.StudyFlow.service.impl;
 
+import com.example.StudyFlow.document.WebsiteLayout;
 import com.example.StudyFlow.dto.request.ProjectCreateRequest;
 import com.example.StudyFlow.dto.response.ProjectResponse;
 import com.example.StudyFlow.entity.Project;
@@ -9,6 +10,7 @@ import com.example.StudyFlow.exception.ResourceNotFoundException;
 import com.example.StudyFlow.repository.ProjectConfigRepository;
 import com.example.StudyFlow.repository.ProjectRepository;
 import com.example.StudyFlow.repository.UserRepository;
+import com.example.StudyFlow.repository.mongo.WebsiteLayoutRepository;
 import com.example.StudyFlow.service.ProjectService;
 import com.example.StudyFlow.util.SlugUtils;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +31,7 @@ public class ProjectServiceImpl implements ProjectService {
     private final ProjectRepository projectRepository;
     private final ProjectConfigRepository configRepository;
     private final UserRepository userRepository;
+    private final WebsiteLayoutRepository websiteLayoutRepository;
 
     @Override
     @Transactional
@@ -141,6 +144,28 @@ public class ProjectServiceImpl implements ProjectService {
                 .build();
 
         configRepository.save(config);
+
+        // Save into MongoDB for document-based website layout
+        try {
+            WebsiteLayout mongoLayout = WebsiteLayout.builder()
+                    .projectId(savedProject.getId())
+                    .slug(savedProject.getSlug())
+                    .websiteName(savedProject.getWebsiteName())
+                    .themeColor(savedProject.getThemeColor())
+                    .draftLayout(defaultLayoutJson)
+                    .publishedLayout(defaultLayoutJson)
+                    .version(1)
+                    .published(true)
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .publishedAt(LocalDateTime.now())
+                    .build();
+            websiteLayoutRepository.save(mongoLayout);
+            log.info("Website layout saved to MongoDB collection 'website_layouts' for slug: {}", savedProject.getSlug());
+        } catch (Exception e) {
+            log.error("Failed to save layout to MongoDB: {}", e.getMessage());
+        }
+
         log.info("Project & website initialized with 3-Tier Site Structure: {} (Slug: {})", savedProject.getProjectName(), savedProject.getSlug());
 
         return mapToProjectResponse(savedProject, defaultLayoutJson);
@@ -151,9 +176,11 @@ public class ProjectServiceImpl implements ProjectService {
         return projectRepository.findByUserIdAndActiveTrueOrderByCreatedAtDesc(userId)
                 .stream()
                 .map(p -> {
-                    String layout = configRepository.findByProjectId(p.getId())
-                            .map(ProjectConfig::getLayoutData)
-                            .orElse("{}");
+                    String layout = websiteLayoutRepository.findByProjectId(p.getId())
+                            .map(WebsiteLayout::getDraftLayout)
+                            .orElseGet(() -> configRepository.findByProjectId(p.getId())
+                                    .map(ProjectConfig::getLayoutData)
+                                    .orElse("{}"));
                     return mapToProjectResponse(p, layout);
                 })
                 .toList();
@@ -164,9 +191,11 @@ public class ProjectServiceImpl implements ProjectService {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new ResourceNotFoundException("Project not found with id: " + projectId));
 
-        String layout = configRepository.findByProjectId(projectId)
-                .map(ProjectConfig::getLayoutData)
-                .orElse("{}");
+        String layout = websiteLayoutRepository.findByProjectId(projectId)
+                .map(WebsiteLayout::getDraftLayout)
+                .orElseGet(() -> configRepository.findByProjectId(projectId)
+                        .map(ProjectConfig::getLayoutData)
+                        .orElse("{}"));
 
         return mapToProjectResponse(project, layout);
     }
@@ -184,13 +213,50 @@ public class ProjectServiceImpl implements ProjectService {
     }
 
     @Override
+    public String getPublishedLayout(String slug) {
+        // Fast 1-read fetch from MongoDB; falls back to MySQL if not present
+        return websiteLayoutRepository.findBySlug(slug)
+                .map(WebsiteLayout::getPublishedLayout)
+                .orElseGet(() -> configRepository.findByProjectSlug(slug)
+                        .map(ProjectConfig::getLayoutData)
+                        .orElse("{}"));
+    }
+
+    @Override
     @Transactional
     public ProjectConfig updateLayoutConfig(String projectId, String layoutData) {
         ProjectConfig config = configRepository.findByProjectId(projectId)
                 .orElseThrow(() -> new ResourceNotFoundException("Project config not found for project id: " + projectId));
 
         config.setLayoutData(layoutData);
-        return configRepository.save(config);
+        ProjectConfig savedConfig = configRepository.save(config);
+
+        // Also update draft layout in MongoDB
+        try {
+            websiteLayoutRepository.findByProjectId(projectId).ifPresentOrElse(ml -> {
+                ml.setDraftLayout(layoutData);
+                ml.setUpdatedAt(LocalDateTime.now());
+                websiteLayoutRepository.save(ml);
+            }, () -> {
+                WebsiteLayout newLayout = WebsiteLayout.builder()
+                        .projectId(projectId)
+                        .slug(config.getProject().getSlug())
+                        .websiteName(config.getProject().getWebsiteName())
+                        .themeColor(config.getProject().getThemeColor())
+                        .draftLayout(layoutData)
+                        .publishedLayout(layoutData)
+                        .version(1)
+                        .published(true)
+                        .createdAt(LocalDateTime.now())
+                        .updatedAt(LocalDateTime.now())
+                        .build();
+                websiteLayoutRepository.save(newLayout);
+            });
+        } catch (Exception e) {
+            log.error("Failed to update layout in MongoDB: {}", e.getMessage());
+        }
+
+        return savedConfig;
     }
 
     @Override
@@ -209,6 +275,20 @@ public class ProjectServiceImpl implements ProjectService {
                            .replaceAll("\"isSampleActive\"\\s*:\\s*true", "\"isSampleActive\":false");
             config.setLayoutData(layout);
             configRepository.save(config);
+        }
+
+        // Publish to MongoDB
+        final String publishedJson = layout;
+        try {
+            websiteLayoutRepository.findByProjectId(projectId).ifPresent(ml -> {
+                ml.setPublishedLayout(publishedJson);
+                ml.setVersion(ml.getVersion() + 1);
+                ml.setPublished(true);
+                ml.setPublishedAt(LocalDateTime.now());
+                websiteLayoutRepository.save(ml);
+            });
+        } catch (Exception e) {
+            log.error("Failed to publish layout to MongoDB: {}", e.getMessage());
         }
 
         Map<String, Object> result = new HashMap<>();

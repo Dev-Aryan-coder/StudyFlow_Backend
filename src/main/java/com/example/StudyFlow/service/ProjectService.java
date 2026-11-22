@@ -20,6 +20,8 @@ public interface ProjectService {
 
     ProjectConfig getConfigBySlug(String slug);
 
+    String getPublishedLayout(String slug);
+
     ProjectConfig updateLayoutConfig(String projectId, String layoutData);
 
     Map<String, Object> publishWebsite(String projectId);

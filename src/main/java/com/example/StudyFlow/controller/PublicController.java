@@ -11,6 +11,7 @@ import com.example.StudyFlow.security.JwtTokenProvider;
 import com.example.StudyFlow.service.BatchService;
 import com.example.StudyFlow.service.LeadService;
 import com.example.StudyFlow.service.ProjectService;
+import com.example.StudyFlow.service.WebsiteLayoutService;
 import com.example.StudyFlow.service.StudyMaterialService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -37,6 +38,7 @@ import java.util.Optional;
 public class PublicController {
 
     private final ProjectService projectService;
+    private final WebsiteLayoutService websiteLayoutService;
     private final LeadService leadService;
     private final BatchService batchService;
     private final StudyMaterialService materialService;
@@ -52,7 +54,7 @@ public class PublicController {
     @GetMapping("/{slug}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getPublicSite(@PathVariable String slug) {
         Project project = projectService.getBySlug(slug);
-        ProjectConfig config = projectService.getConfigBySlug(slug);
+        String layoutJson = websiteLayoutService.getPublishedLayoutBySlug(slug);
 
         Map<String, Object> data = new HashMap<>();
         data.put("id", project.getId());
@@ -64,7 +66,7 @@ public class PublicController {
         data.put("themeColor", project.getThemeColor());
         data.put("tutorName", project.getUser() != null ? project.getUser().getUsername() : "");
         data.put("whatsappNumber", project.getUser() != null ? project.getUser().getPhoneNumber() : "");
-        data.put("layout", config.getLayoutData());
+        data.put("layout", layoutJson);
 
         return ResponseEntity.ok(ApiResponse.success(data, "Public website resolved successfully"));
     }
@@ -78,13 +80,13 @@ public class PublicController {
             @PathVariable String slug,
             @PathVariable String pageName) {
         Project project = projectService.getBySlug(slug);
-        ProjectConfig config = projectService.getConfigBySlug(slug);
+        String layoutJson = websiteLayoutService.getPublishedLayoutBySlug(slug);
 
         Map<String, Object> pageData = new HashMap<>();
         pageData.put("slug", slug);
         pageData.put("instituteName", project.getWebsiteName());
         pageData.put("pageName", pageName);
-        pageData.put("layout", config.getLayoutData());
+        pageData.put("layout", layoutJson);
 
         return ResponseEntity.ok(ApiResponse.success(pageData, "Page '" + pageName + "' resolved successfully"));
     }

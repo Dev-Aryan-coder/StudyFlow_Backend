@@ -1,11 +1,12 @@
 package com.example.StudyFlow.controller;
 
+import com.example.StudyFlow.document.WebsiteLayout;
 import com.example.StudyFlow.dto.request.LayoutConfigUpdateRequest;
 import com.example.StudyFlow.dto.request.ProjectCreateRequest;
 import com.example.StudyFlow.dto.response.ApiResponse;
 import com.example.StudyFlow.dto.response.ProjectResponse;
-import com.example.StudyFlow.entity.ProjectConfig;
 import com.example.StudyFlow.service.ProjectService;
+import com.example.StudyFlow.service.WebsiteLayoutService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -21,6 +22,7 @@ import java.util.Map;
 public class ProjectController {
 
     private final ProjectService projectService;
+    private final WebsiteLayoutService websiteLayoutService;
 
     /**
      * 4-Step Project / Website Creation Wizard - Final Confirmation
@@ -53,22 +55,62 @@ public class ProjectController {
     }
 
     /**
-     * Editor Mode - Save / Update modular website layout configuration JSON
+     * Editor Mode - Get Draft Layout from MongoDB
      */
-    @PutMapping("/{projectId}/config")
-    public ResponseEntity<ApiResponse<ProjectConfig>> updateLayoutConfig(
+    @GetMapping("/{projectId}/layout/draft")
+    public ResponseEntity<ApiResponse<WebsiteLayout>> getDraftLayout(@PathVariable String projectId) {
+        WebsiteLayout layout = websiteLayoutService.getDraftLayout(projectId);
+        return ResponseEntity.ok(ApiResponse.success(layout, "Draft layout retrieved from MongoDB"));
+    }
+
+    /**
+     * Editor Mode - Save / Update Draft Layout in MongoDB
+     */
+    @PutMapping("/{projectId}/layout/draft")
+    public ResponseEntity<ApiResponse<WebsiteLayout>> updateDraftLayout(
             @PathVariable String projectId,
             @Valid @RequestBody LayoutConfigUpdateRequest request) {
-        ProjectConfig updated = projectService.updateLayoutConfig(projectId, request.getLayoutData());
+        WebsiteLayout updated = websiteLayoutService.updateDraftLayout(projectId, request.getLayoutData());
+        return ResponseEntity.ok(ApiResponse.success(updated, "Draft layout autosaved to MongoDB"));
+    }
+
+    /**
+     * Publish website layout in MongoDB with Safety Tripwire & version increment
+     */
+    @PostMapping("/{projectId}/layout/publish")
+    public ResponseEntity<ApiResponse<WebsiteLayout>> publishLayout(@PathVariable String projectId) {
+        WebsiteLayout published = websiteLayoutService.publishLayout(projectId);
+        return ResponseEntity.ok(ApiResponse.success(published, "Website published live! Tripwire auto-disabled preview mode."));
+    }
+
+    /**
+     * Rollback website layout to a previous version in MongoDB
+     */
+    @PostMapping("/{projectId}/layout/rollback/{version}")
+    public ResponseEntity<ApiResponse<WebsiteLayout>> rollbackLayout(
+            @PathVariable String projectId,
+            @PathVariable int version) {
+        WebsiteLayout rolledBack = websiteLayoutService.rollbackToVersion(projectId, version);
+        return ResponseEntity.ok(ApiResponse.success(rolledBack, "Successfully rolled back layout to version " + version));
+    }
+
+    /**
+     * Backward-compatible legacy update endpoint
+     */
+    @PutMapping("/{projectId}/config")
+    public ResponseEntity<ApiResponse<WebsiteLayout>> updateLayoutConfigLegacy(
+            @PathVariable String projectId,
+            @Valid @RequestBody LayoutConfigUpdateRequest request) {
+        WebsiteLayout updated = websiteLayoutService.updateDraftLayout(projectId, request.getLayoutData());
+        websiteLayoutService.publishLayout(projectId);
         return ResponseEntity.ok(ApiResponse.success(updated, "Website layout updated and published live!"));
     }
 
     /**
-     * Publish Safety Tripwire: Sanitizes preview flags and pushes website live to public subdomain
-     * Example: POST /api/projects/{projectId}/publish
+     * Backward-compatible legacy publish endpoint
      */
     @PostMapping("/{projectId}/publish")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> publishWebsite(@PathVariable String projectId) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> publishWebsiteLegacy(@PathVariable String projectId) {
         Map<String, Object> publishResult = projectService.publishWebsite(projectId);
         return ResponseEntity.ok(ApiResponse.success(publishResult, "Website published live! Tripwire auto-disabled preview mode."));
     }
