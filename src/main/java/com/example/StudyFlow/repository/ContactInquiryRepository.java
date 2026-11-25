@@ -1,0 +1,20 @@
+package com.example.StudyFlow.repository;
+
+import com.example.StudyFlow.entity.ContactInquiry;
+import com.example.StudyFlow.enums.InquiryStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface ContactInquiryRepository extends JpaRepository<ContactInquiry, Long> {
+
+    List<ContactInquiry> findAllByOrderByCreatedAtDesc();
+
+    List<ContactInquiry> findByStatusOrderByCreatedAtDesc(InquiryStatus status);
+
+    List<ContactInquiry> findByEmailOrderByCreatedAtDesc(String email);
+
+    long countByStatus(InquiryStatus status);
+}
